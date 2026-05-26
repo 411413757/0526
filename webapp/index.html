@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediaPipe Pose Webcam 偵測</title>
+  <style>
+    body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+    .container { display: flex; flex-direction: column; align-items: center; padding: 16px; }
+    #output { position: relative; width: 100%; max-width: 900px; }
+    video, canvas { width: 100%; height: auto; border-radius: 12px; }
+    .status { margin-top: 12px; width: 100%; max-width: 900px; padding: 12px 16px; background: rgba(0,0,0,0.6); border-radius: 10px; }
+    .status strong { color: #70e000; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>MediaPipe Pose Webcam 偵測</h1>
+    <div id="output">
+      <video id="video" playsinline muted></video>
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="status">
+      <p>狀態：<strong id="status">正在初始化...</strong></p>
+      <p>請允許攝影機存取，並將相機對準自己進行姿態偵測。</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { Pose } from 'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.4/pose.js';
+    import { drawConnectors, drawLandmarks } from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.5.4/drawing_utils.js';
+    import { Camera } from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.5.4/camera_utils.js';
+
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.4/${file}`});
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({image: videoElement});
+      },
+      width: 1280,
+      height: 720
+    });
+
+    async function onResults(results) {
+      canvasElement.width = videoElement.videoWidth;
+      canvasElement.height = videoElement.videoHeight;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      if (results.poseLandmarks) {
+        drawConnectors(canvasCtx, results.poseLandmarks, Pose.POSE_CONNECTIONS, {color: '#00ff88', lineWidth: 4});
+        drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#ff0066', lineWidth: 2});
+      }
+      canvasCtx.restore();
+      statusEl.textContent = '攝影機已啟用，正在進行姿態偵測。';
+    }
+
+    camera.start().then(() => {
+      statusEl.textContent = '已啟動攝影機，請允許存取。';
+    }).catch((error) => {
+      statusEl.textContent = '無法啟動攝影機：' + error.message;
+    });
+  </script>
+</body>
+</html>
