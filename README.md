@@ -5,7 +5,7 @@
 ## 專案內容
 
 - `pose_example.py` - MediaPipe Pose Python 範例與遊戲狀態整合。
-- `webapp/index.html` - MediaPipe Pose Web webcam 偵測網頁。
+- `webapp/index.html` - MediaPipe FaceMesh 表情偵測網頁。
 - `webapp/server.py` - 本機靜態伺服器，用於在 `http://127.0.0.1:8000` 開啟網頁。
 - `requirements.txt` - Python 相依套件。
 - `url.txt` - 專案儲存庫網址。

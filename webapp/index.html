@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MediaPipe Pose Webcam 偵測</title>
+  <title>MediaPipe FaceMesh 表情偵測</title>
   <style>
     body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
     .container { display: flex; flex-direction: column; align-items: center; padding: 16px; }
@@ -15,45 +15,89 @@
 </head>
 <body>
   <div class="container">
-    <h1>MediaPipe Pose Webcam 偵測</h1>
+    <h1>MediaPipe FaceMesh 表情偵測</h1>
     <div id="output">
       <video id="video" playsinline muted></video>
       <canvas id="canvas"></canvas>
     </div>
     <div class="status">
       <p>狀態：<strong id="status">正在初始化...</strong></p>
-      <p>請允許攝影機存取，並將相機對準自己進行姿態偵測。</p>
+      <p>請允許攝影機存取，並將臉部對準鏡頭進行表情偵測。</p>
     </div>
   </div>
 
   <script type="module">
-    import { Pose } from 'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.4/pose.js';
-    import { drawConnectors, drawLandmarks } from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.5.4/drawing_utils.js';
+    import { FaceMesh, FACEMESH_TESSELATION, FACEMESH_LIPS, FACEMESH_LEFT_EYE, FACEMESH_RIGHT_EYE, FACEMESH_LEFT_EYEBROW, FACEMESH_RIGHT_EYEBROW, FACEMESH_FACE_OVAL } from 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.5.4/face_mesh.js';
     import { Camera } from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.5.4/camera_utils.js';
+    import { drawConnectors } from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.5.4/drawing_utils.js';
 
     const videoElement = document.getElementById('video');
     const canvasElement = document.getElementById('canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const statusEl = document.getElementById('status');
 
-    const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.4/${file}`});
-    pose.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      enableSegmentation: false,
+    const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.5.4/${file}` });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5
     });
 
-    pose.onResults(onResults);
+    faceMesh.onResults(onResults);
 
     const camera = new Camera(videoElement, {
       onFrame: async () => {
-        await pose.send({image: videoElement});
+        await faceMesh.send({ image: videoElement });
       },
       width: 1280,
       height: 720
     });
+
+    function distance(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function eyeAspectRatio(landmarks, topIdx, bottomIdx, leftIdx, rightIdx) {
+      const top = landmarks[topIdx];
+      const bottom = landmarks[bottomIdx];
+      const left = landmarks[leftIdx];
+      const right = landmarks[rightIdx];
+      return (distance(top, bottom) / distance(left, right));
+    }
+
+    function getExpressions(landmarks) {
+      const leftMouth = landmarks[61];
+      const rightMouth = landmarks[291];
+      const upperLip = landmarks[13];
+      const lowerLip = landmarks[14];
+      const mouthHeight = distance(upperLip, lowerLip);
+      const mouthWidth = distance(leftMouth, rightMouth);
+      const mouthRatio = mouthWidth / mouthHeight;
+      const leftEAR = eyeAspectRatio(landmarks, 159, 145, 33, 133);
+      const rightEAR = eyeAspectRatio(landmarks, 386, 374, 362, 263);
+
+      const expressions = [];
+      if (mouthHeight > 0.04) {
+        expressions.push('張嘴');
+      }
+      if (mouthRatio > 3.8) {
+        expressions.push('微笑');
+      }
+      if (leftEAR < 0.17 && rightEAR < 0.17) {
+        expressions.push('雙眼眨眼');
+      } else if (leftEAR < 0.17) {
+        expressions.push('左眼閉眼');
+      } else if (rightEAR < 0.17) {
+        expressions.push('右眼閉眼');
+      }
+      if (expressions.length === 0) {
+        expressions.push('中性');
+      }
+      return expressions.join('，');
+    }
 
     async function onResults(results) {
       canvasElement.width = videoElement.videoWidth;
@@ -61,12 +105,23 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-      if (results.poseLandmarks) {
-        drawConnectors(canvasCtx, results.poseLandmarks, Pose.POSE_CONNECTIONS, {color: '#00ff88', lineWidth: 4});
-        drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#ff0066', lineWidth: 2});
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, { color: '#888', lineWidth: 1 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, { color: '#ff3366', lineWidth: 2 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, { color: '#00ccff', lineWidth: 2 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, { color: '#00ccff', lineWidth: 2 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, { color: '#ffcc00', lineWidth: 2 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, { color: '#ffcc00', lineWidth: 2 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, { color: '#00ff88', lineWidth: 2 });
+
+        statusEl.textContent = '已偵測臉部，表情：' + getExpressions(landmarks);
+      } else {
+        statusEl.textContent = '未偵測到臉部，請將臉部對準鏡頭。';
       }
+
       canvasCtx.restore();
-      statusEl.textContent = '攝影機已啟用，正在進行姿態偵測。';
     }
 
     camera.start().then(() => {
